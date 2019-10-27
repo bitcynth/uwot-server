@@ -4,8 +4,11 @@ import (
 	"bufio"
 	"crypto/tls"
 	"flag"
+	"fmt"
+	"io/ioutil"
 	"log"
 	"net"
+	"regexp"
 )
 
 var listenAddr = flag.String("listen", ":43443", "the address to listen on")
@@ -56,8 +59,33 @@ func handleConn(conn net.Conn) {
 
 	log.Printf("Received query for: %s", q)
 
-	n, err := conn.Write([]byte(q))
+	resp := whois(q)
+
+	n, err := conn.Write([]byte(resp))
 	if err != nil {
 		log.Fatal(n, err)
 	}
+}
+
+var regexExtractWhoisServer = regexp.MustCompile(`whois:\s+([a-z0-9\-\.]+)`)
+
+func queryWhois(query string, addr string) string {
+	conn, _ := net.Dial("tcp", addr)
+	fmt.Fprintf(conn, query+"\r\n")
+	data, _ := ioutil.ReadAll(conn)
+	return string(data)
+}
+
+func whois(query string) string {
+	data := queryWhois(query, "whois.iana.org:43")
+	resp := data
+	for {
+		refSearch := regexExtractWhoisServer.FindStringSubmatch(data)
+		if len(refSearch) < 2 {
+			break
+		}
+		data = queryWhois(query, refSearch[1]+":43")
+		resp += "\n\n" + data
+	}
+	return resp
 }
